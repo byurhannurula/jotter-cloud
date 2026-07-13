@@ -13,6 +13,10 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// Worker version. Bump on each meaningful change so the desktop app can detect a
+// deployed worker that's behind and nudge a redeploy. Keep in sync with package.json.
+const WORKER_VERSION = '0.1.0'
+
 // Same renderer settings as the desktop app (untrusted markdown → no raw HTML).
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
 
@@ -42,6 +46,23 @@ app.use('/drafts/*', auth)
 app.use('/shares', auth)
 app.use('/share', auth)
 app.use('/share/*', auth)
+app.use('/health', auth)
+
+// --- Health / version (for the app's "Test connection" + update check) ---
+
+// Public: lets the app read the deployed version without a token (stale-worker notice).
+app.get('/version', (c) => c.json({ version: WORKER_VERSION }))
+
+// Token-guarded connection check. 401 = bad token, 200 = URL + token + D1 all good,
+// 500 = token fine but the backend is broken. Warms/provisions the D1 schema too.
+app.get('/health', async (c) => {
+  try {
+    await ensureSchema(c.env.SHARES)
+    return c.json({ ok: true, version: WORKER_VERSION })
+  } catch (err) {
+    return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500)
+  }
+})
 
 // --- Sync: R2 drafts store ---
 
