@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { bearerAuth } from 'hono/bearer-auth'
+import { timingSafeEqual } from 'hono/utils/buffer'
 import MarkdownIt from 'markdown-it'
 import { ensureSchema } from './db'
 import { Landing, NotFoundPage, SharePage } from './ui'
@@ -31,8 +32,10 @@ function newShareId(len = 16): string {
 }
 
 // --- Auth: bearer on sync + share-management; /s/:id and / stay public ---
+// Compare with Hono's constant-time `timingSafeEqual` rather than a leaky `===`,
+// so the token check can't be probed via response-timing.
 const auth = bearerAuth({
-  verifyToken: (token, c) => token === (c.env as Bindings).SYNC_TOKEN,
+  verifyToken: (token, c) => timingSafeEqual(token, (c.env as Bindings).SYNC_TOKEN),
 })
 app.use('/drafts', auth)
 app.use('/drafts/*', auth)

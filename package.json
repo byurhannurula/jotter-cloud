@@ -4,6 +4,13 @@
   "private": true,
   "type": "module",
   "description": "Self-hosted Cloudflare Worker for Jotter — drafts sync (R2) and read-only sharing (D1).",
+  "cloudflare": {
+    "bindings": {
+      "SYNC_TOKEN": {
+        "description": "Shared secret that protects your notes. Generate one in Jotter (Settings -> Sync -> Generate token) and paste the SAME value here. It is the only thing guarding sync and sharing - treat it like a password. Do not leave this blank."
+      }
+    }
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
