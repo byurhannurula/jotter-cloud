@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "jotter-cloud",
+  "main": "src/index.tsx",
+  // >= 2022-08-04 required for R2 list `include`; kept current for the JSX runtime.
+  "compatibility_date": "2024-11-01",
+  "observability": { "enabled": true },
+  // R2 holds one object per draft (the sync store). Auto-provisioned by the deploy button.
+  "r2_buckets": [{ "binding": "DRAFTS", "bucket_name": "jotter-cloud" }],
+  // D1 is the share registry (the URLs), so revoke/reshare work from any device.
+  // The schema self-creates at runtime (CREATE TABLE IF NOT EXISTS) — no migration step.
+  // For a manual deploy, run `wrangler d1 create jotter-shares` and paste the id below.
+  "d1_databases": [
+    {
+      "binding": "SHARES",
+      "database_name": "jotter-shares",
+      "database_id": "REPLACE_WITH_D1_ID",
+    },
+  ],
+  // SYNC_TOKEN is a secret — set with `wrangler secret put SYNC_TOKEN` (or the deploy prompt).
+}

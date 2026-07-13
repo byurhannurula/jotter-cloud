@@ -1,0 +1,7 @@
+# Supply-chain hardening: refuse package versions published in the last 48h.
+minimumReleaseAge: 2880
+# Only these deps may run install/build lifecycle scripts.
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: false
