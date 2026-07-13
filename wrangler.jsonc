@@ -7,6 +7,10 @@
   "observability": { "enabled": true },
   // Opt out of Wrangler's anonymous CLI telemetry (locally and in Workers Builds).
   "send_metrics": false,
+  // Keep the one stable *.workers.dev URL the app points at; disable per-version
+  // preview URLs so old versions don't get their own extra public hostnames.
+  "workers_dev": true,
+  "preview_urls": false,
   // R2 holds one object per draft (the sync store). Auto-provisioned by the deploy button.
   "r2_buckets": [{ "binding": "DRAFTS", "bucket_name": "jotter-cloud" }],
   // D1 is the share registry (the URLs), so revoke/reshare work from any device.
