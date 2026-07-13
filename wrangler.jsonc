@@ -5,17 +5,15 @@
   // >= 2022-08-04 required for R2 list `include`; kept current for the JSX runtime.
   "compatibility_date": "2024-11-01",
   "observability": { "enabled": true },
+  // Opt out of Wrangler's anonymous CLI telemetry (locally and in Workers Builds).
+  "send_metrics": false,
   // R2 holds one object per draft (the sync store). Auto-provisioned by the deploy button.
   "r2_buckets": [{ "binding": "DRAFTS", "bucket_name": "jotter-cloud" }],
   // D1 is the share registry (the URLs), so revoke/reshare work from any device.
   // The schema self-creates at runtime (CREATE TABLE IF NOT EXISTS) — no migration step.
-  // For a manual deploy, run `wrangler d1 create jotter-shares` and paste the id below.
-  "d1_databases": [
-    {
-      "binding": "SHARES",
-      "database_name": "jotter-shares",
-      "database_id": "REPLACE_WITH_D1_ID",
-    },
-  ],
+  // NB: no `database_id` on purpose — Cloudflare auto-provisions the DB (one-click
+  // deploy) when the id is omitted. A hardcoded/placeholder id blocks provisioning.
+  // For a manual deploy: `wrangler d1 create jotter-shares` then add its `database_id` here.
+  "d1_databases": [{ "binding": "SHARES", "database_name": "jotter-shares" }],
   // SYNC_TOKEN is a secret — set with `wrangler secret put SYNC_TOKEN` (or the deploy prompt).
 }
