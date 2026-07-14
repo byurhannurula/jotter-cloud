@@ -3,6 +3,8 @@ updates:
   # npm/pnpm dependencies. Grouped so routine minor/patch bumps arrive as one PR.
   - package-ecosystem: npm
     directory: /
+    # Open PRs against dev; promote to main via the normal dev -> main PR.
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -15,6 +17,8 @@ updates:
   # Keep the GitHub Actions used in CI current.
   - package-ecosystem: github-actions
     directory: /
+    # Open PRs against dev; promote to main via the normal dev -> main PR.
+    target-branch: dev
     schedule:
       interval: weekly
     groups:
