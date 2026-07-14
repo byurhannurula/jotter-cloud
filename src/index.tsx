@@ -13,9 +13,24 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// Baseline hardening headers on every response; a strict CSP is added only on the
+// HTML pages (the only responses a browser renders). Markdown is rendered with
+// `html:false` upstream, so the CSP is defense-in-depth. `style-src 'unsafe-inline'`
+// covers the page's inline <style>; `img-src https: data:` covers avatars and any
+// image embedded in a shared note.
+const CSP =
+  "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+app.use('*', async (c, next) => {
+  await next()
+  c.header('X-Content-Type-Options', 'nosniff')
+  c.header('Referrer-Policy', 'no-referrer')
+  if ((c.res.headers.get('content-type') ?? '').includes('text/html'))
+    c.header('Content-Security-Policy', CSP)
+})
+
 // Worker version. Bump on each meaningful change so the desktop app can detect a
 // deployed worker that's behind and nudge a redeploy. Keep in sync with package.json.
-const WORKER_VERSION = '0.1.0'
+const WORKER_VERSION = '0.1.1'
 
 // Same renderer settings as the desktop app (untrusted markdown → no raw HTML).
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
@@ -24,6 +39,31 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
 const DRAFT_ID = /^draft-[\w-]{1,80}$/
 
 const DRAFT_KEY = (id: string) => `drafts/${id}.json`
+
+// Body-size caps so a leaked token can't grow R2/D1 without bound. Draft bodies
+// live in R2; a share's `content` lands in a single D1 row (~1 MB ceiling), so it
+// is capped tighter to fail with a clean 413 instead of a backend 500.
+const MAX_DRAFT_BYTES = 1024 * 1024 // 1 MB per draft object
+const MAX_SHARE_BYTES = 512 * 1024 // 512 KB of note content per share
+const SHARE_REQUEST_SLACK = 64 * 1024 // headroom for title + JSON framing around content
+
+const byteLength = (s: string): number => new TextEncoder().encode(s).length
+
+// Reject an oversized request from its declared Content-Length before we buffer it.
+// (Chunked requests omit it, so callers still re-check the actual body length.)
+const declaredOver = (header: string | undefined, max: number): boolean => {
+  const len = Number(header)
+  return Number.isFinite(len) && len > max
+}
+
+// Minimum length we accept for SYNC_TOKEN. Jotter's "Generate token" makes a long
+// random one; this only rejects blank/obviously-weak secrets so the worker fails
+// closed rather than running an unauthenticated store.
+const MIN_TOKEN_LEN = 16
+
+// True only when a usable SYNC_TOKEN secret is actually set on the worker.
+const hasValidToken = (env: Bindings): boolean =>
+  typeof env.SYNC_TOKEN === 'string' && env.SYNC_TOKEN.length >= MIN_TOKEN_LEN
 
 // Unguessable base62 slug for a share URL.
 const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
@@ -36,10 +76,16 @@ function newShareId(len = 16): string {
 }
 
 // --- Auth: bearer on sync + share-management; /s/:id and / stay public ---
-// Compare with Hono's constant-time `timingSafeEqual` rather than a leaky `===`,
-// so the token check can't be probed via response-timing.
+// Fail closed if the secret is missing/weak, so a deploy that skipped the token
+// prompt can't become an open notes store. Otherwise compare with Hono's
+// constant-time `timingSafeEqual` rather than a leaky `===`, so the token check
+// can't be probed via response-timing.
 const auth = bearerAuth({
-  verifyToken: (token, c) => timingSafeEqual(token, (c.env as Bindings).SYNC_TOKEN),
+  verifyToken: (token, c) => {
+    const env = c.env as Bindings
+    if (!hasValidToken(env)) return false
+    return timingSafeEqual(token, env.SYNC_TOKEN)
+  },
 })
 app.use('/drafts', auth)
 app.use('/drafts/*', auth)
@@ -51,7 +97,10 @@ app.use('/health', auth)
 // --- Health / version (for the app's "Test connection" + update check) ---
 
 // Public: lets the app read the deployed version without a token (stale-worker notice).
-app.get('/version', (c) => c.json({ version: WORKER_VERSION }))
+// `configured: false` means no usable SYNC_TOKEN is set yet — every sync route fails
+// closed until one is — so the app's setup can show a clear "set your token" hint
+// instead of an ambiguous 401.
+app.get('/version', (c) => c.json({ version: WORKER_VERSION, configured: hasValidToken(c.env) }))
 
 // Token-guarded connection check. 401 = bad token, 200 = URL + token + D1 all good,
 // 500 = token fine but the backend is broken. Warms/provisions the D1 schema too.
@@ -103,7 +152,10 @@ app.get('/drafts/:id', async (c) => {
 app.put('/drafts/:id', async (c) => {
   const id = c.req.param('id')
   if (!DRAFT_ID.test(id)) return c.json({ error: 'bad id' }, 400)
+  if (declaredOver(c.req.header('content-length'), MAX_DRAFT_BYTES))
+    return c.json({ error: 'draft too large' }, 413)
   const body = await c.req.text()
+  if (byteLength(body) > MAX_DRAFT_BYTES) return c.json({ error: 'draft too large' }, 413)
   let updatedAt = Date.now()
   try {
     const parsed = JSON.parse(body) as { updated_at?: number }
@@ -134,6 +186,8 @@ app.delete('/drafts/:id', async (c) => {
 // Create/replace a draft's share. Upsert by draft_id so one draft has one live URL.
 app.post('/share', async (c) => {
   await ensureSchema(c.env.SHARES)
+  if (declaredOver(c.req.header('content-length'), MAX_SHARE_BYTES + SHARE_REQUEST_SLACK))
+    return c.json({ error: 'share too large' }, 413)
   const { draftId, title, content } = await c.req.json<{
     draftId?: string
     title?: string
@@ -141,6 +195,7 @@ app.post('/share', async (c) => {
   }>()
   if (!draftId || !DRAFT_ID.test(draftId)) return c.json({ error: 'bad draftId' }, 400)
   if (typeof content !== 'string') return c.json({ error: 'bad content' }, 400)
+  if (byteLength(content) > MAX_SHARE_BYTES) return c.json({ error: 'content too large' }, 413)
   const shareId = newShareId()
   const now = Date.now()
   await c.env.SHARES.batch([

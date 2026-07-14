@@ -19,15 +19,24 @@ chk() { # label expected actual
 }
 code() { curl -s -o /dev/null -w "%{http_code}" "$@"; }
 
-# wrangler dev reads the token from .dev.vars; create one if the dev hasn't.
-[ -f .dev.vars ] || echo "SYNC_TOKEN=dev-token" >.dev.vars
-TOKEN="$(grep '^SYNC_TOKEN=' .dev.vars | head -1 | cut -d= -f2-)"
+# Use an isolated strong token for the run (>= MIN_TOKEN_LEN so the worker's
+# fail-closed auth accepts it), and restore any real .dev.vars afterwards.
+TOKEN="smoke-test-token-0123456789"
 AUTH="Authorization: Bearer $TOKEN"
+BACKUP=""
+if [ -f .dev.vars ]; then BACKUP=".dev.vars.smoke-bak"; mv .dev.vars "$BACKUP"; fi
+echo "SYNC_TOKEN=$TOKEN" >.dev.vars
 
 echo "Starting wrangler dev on :$PORT …"
 npx wrangler dev --port "$PORT" >/tmp/jotter-cloud-smoke.log 2>&1 &
 DEV_PID=$!
-trap 'kill "$DEV_PID" 2>/dev/null; pkill -f "wrangler dev" 2>/dev/null' EXIT
+cleanup() {
+  kill "$DEV_PID" 2>/dev/null
+  pkill -f "wrangler dev" 2>/dev/null
+  rm -f .dev.vars
+  [ -n "$BACKUP" ] && mv "$BACKUP" .dev.vars
+}
+trap cleanup EXIT
 
 # Wait for the server to answer (first boot compiles the worker).
 ready=0
@@ -46,6 +55,22 @@ chk "GET /drafts (no token)"       401 "$(code "$URL/drafts")"
 chk "GET /drafts (bad token)"      401 "$(code -H 'Authorization: Bearer nope' "$URL/drafts")"
 chk "GET /health (double Bearer)"  400 "$(code -H "Authorization: Bearer $AUTH" "$URL/health")"
 chk "GET /health (token)"          200 "$(code -H "$AUTH" "$URL/health")"
+
+# --- Phase 1 hardening ---
+# /version advertises a usable token is set (fail-closed diagnostic).
+chk "GET /version configured=true" true \
+  "$(curl -s "$URL/version" | sed -E 's/.*"configured":(true|false).*/\1/')"
+# Baseline hardening header present on the HTML landing page.
+chk "landing has nosniff header"   nosniff \
+  "$(curl -s -D - -o /dev/null "$URL/" | grep -i x-content-type-options | grep -io nosniff)"
+# Body-size cap: a >1 MB draft is refused before it hits R2. Build the payload in a
+# file (a 1.1 MB inline arg would blow past the shell's ARG_MAX) and stream it.
+BIGFILE="$(mktemp)"
+{ printf '{"id":"draft-big","updated_at":1,"content":"'; head -c 1100000 /dev/zero | tr '\0' a; printf '"}'; } >"$BIGFILE"
+chk "PUT oversized draft -> 413"   413 \
+  "$(code -X PUT -H "$AUTH" -H 'content-type: application/json' \
+     --data-binary "@$BIGFILE" "$URL/drafts/draft-big")"
+rm -f "$BIGFILE"
 
 # --- drafts round-trip (R2) ---
 code -X PUT -H "$AUTH" -H 'content-type: application/json' \

@@ -1,6 +1,6 @@
 {
   "name": "jotter-cloud",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Self-hosted Cloudflare Worker for Jotter — drafts sync (R2) and read-only sharing (D1).",
