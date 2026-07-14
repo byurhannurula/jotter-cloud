@@ -1,9 +1,16 @@
 name: CI
 
+# Develop on `dev`; `main` is the deploy branch (Cloudflare Workers Builds ships
+# `main`). CI runs the same gates on both so nothing lands on `main` unchecked.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
+
+# On rapid pushes to the same branch/PR, cancel the superseded run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Fast static gates. Kept separate so a flaky wrangler boot in the smoke job
