@@ -7,6 +7,9 @@ export type ShareRow = {
   title: string
   content: string
   created_at: number
+  // When the note itself was last edited (from the app), for an "Updated" line on
+  // the share page. Null for shares created before the column / by older apps.
+  note_updated_at: number | null
 }
 
 // Cache the "schema exists" check per isolate so we don't re-run DDL on every request.
@@ -26,5 +29,12 @@ export async function ensureSchema(db: D1Database): Promise<void> {
     ),
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS shares_draft ON shares(draft_id)`),
   ])
+  // Reconcile columns added after the table first shipped, so one-click deploys
+  // (which run no migrations) self-heal. Idempotent — only adds what's missing.
+  const cols = await db.prepare('PRAGMA table_info(shares)').all<{ name: string }>()
+  const have = new Set(cols.results.map((r) => r.name))
+  if (!have.has('note_updated_at')) {
+    await db.exec('ALTER TABLE shares ADD COLUMN note_updated_at INTEGER')
+  }
   schemaReady = true
 }

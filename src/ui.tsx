@@ -80,11 +80,26 @@ export const BaseLayout: FC<PropsWithChildren<{ title: string }>> = ({ title, ch
   </html>
 )
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// A short, locale-independent date (Workers' Intl data is limited). e.g. "14 Jul 2026".
+function fmtDate(ms: number): string {
+  const d = new Date(ms)
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+}
+
 // A rendered note (markdown-it → HTML, html:false upstream) in a clean reading column.
-export const SharePage: FC<{ title: string; bodyHtml: string }> = ({ title, bodyHtml }) => (
+// `updatedAt` (ms) is optional — older apps/shares don't send it, so the line is omitted.
+export const SharePage: FC<{ title: string; bodyHtml: string; updatedAt?: number }> = ({
+  title,
+  bodyHtml,
+  updatedAt,
+}) => (
   <BaseLayout title={title}>
     <main class="prose" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-    <footer class="footer">shared from Jotter</footer>
+    <footer class="footer">
+      {updatedAt ? `Updated ${fmtDate(updatedAt)} · ` : ''}shared from Jotter
+    </footer>
   </BaseLayout>
 )
 

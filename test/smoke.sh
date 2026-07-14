@@ -81,10 +81,13 @@ chk "DELETE /drafts/:id"           200 "$(code -X DELETE -H "$AUTH" "$URL/drafts
 chk "GET tombstoned /drafts/:id"   404 "$(code -H "$AUTH" "$URL/drafts/draft-smoke")"
 
 # --- share round-trip (D1) ---
+# updatedAt (ms) is optional; when sent it renders an "Updated <date>" footer line.
 SID="$(curl -s -X POST -H "$AUTH" -H 'content-type: application/json' \
-  -d '{"draftId":"draft-smoke","title":"T","content":"# hi"}' "$URL/share" \
+  -d '{"draftId":"draft-smoke","title":"T","content":"# hi","updatedAt":1720915200000}' "$URL/share" \
   | sed -E 's/.*"shareId":"([^"]+)".*/\1/')"
 chk "POST /share -> GET /s/:id"    200 "$(code "$URL/s/$SID")"
+chk "share page renders Updated"   Updated \
+  "$(curl -s "$URL/s/$SID" | grep -o 'Updated' | head -1)"
 chk "DELETE /share/:id (revoke)"   200 "$(code -X DELETE -H "$AUTH" "$URL/share/$SID")"
 chk "GET /s/:id after revoke"      404 "$(code "$URL/s/$SID")"
 

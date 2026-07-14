@@ -30,7 +30,7 @@ app.use('*', async (c, next) => {
 
 // Worker version. Bump on each meaningful change so the desktop app can detect a
 // deployed worker that's behind and nudge a redeploy. Keep in sync with package.json.
-const WORKER_VERSION = '0.1.1'
+const WORKER_VERSION = '0.1.2'
 
 // Same renderer settings as the desktop app (untrusted markdown → no raw HTML).
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
@@ -65,13 +65,22 @@ const MIN_TOKEN_LEN = 16
 const hasValidToken = (env: Bindings): boolean =>
   typeof env.SYNC_TOKEN === 'string' && env.SYNC_TOKEN.length >= MIN_TOKEN_LEN
 
-// Unguessable base62 slug for a share URL.
+// Unguessable base62 slug for a share URL. Rejection-sample so every character is
+// uniformly distributed: a raw byte is 0-255, and 256 isn't a multiple of 62, so
+// `b % 62` would bias the first `256 % 62` values. Dropping bytes >= 248 (4*62)
+// removes that bias. ~16 chars ≈ 95 bits either way; this just makes it exact.
 const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 function newShareId(len = 16): string {
-  const bytes = new Uint8Array(len)
-  crypto.getRandomValues(bytes)
   let out = ''
-  for (const b of bytes) out += BASE62[b % 62]
+  while (out.length < len) {
+    const bytes = new Uint8Array(len)
+    crypto.getRandomValues(bytes)
+    for (const b of bytes) {
+      if (b >= 248) continue // biased tail — resample
+      out += BASE62[b % 62]
+      if (out.length === len) break
+    }
+  }
   return out
 }
 
@@ -188,21 +197,24 @@ app.post('/share', async (c) => {
   await ensureSchema(c.env.SHARES)
   if (declaredOver(c.req.header('content-length'), MAX_SHARE_BYTES + SHARE_REQUEST_SLACK))
     return c.json({ error: 'share too large' }, 413)
-  const { draftId, title, content } = await c.req.json<{
+  const { draftId, title, content, updatedAt } = await c.req.json<{
     draftId?: string
     title?: string
     content?: string
+    updatedAt?: number
   }>()
   if (!draftId || !DRAFT_ID.test(draftId)) return c.json({ error: 'bad draftId' }, 400)
   if (typeof content !== 'string') return c.json({ error: 'bad content' }, 400)
   if (byteLength(content) > MAX_SHARE_BYTES) return c.json({ error: 'content too large' }, 413)
+  // Optional: when the note was last edited, for the share page's "Updated" line.
+  const noteUpdatedAt = typeof updatedAt === 'number' ? updatedAt : null
   const shareId = newShareId()
   const now = Date.now()
   await c.env.SHARES.batch([
     c.env.SHARES.prepare('DELETE FROM shares WHERE draft_id = ?').bind(draftId),
     c.env.SHARES.prepare(
-      'INSERT INTO shares (share_id, draft_id, title, content, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).bind(shareId, draftId, title ?? '', content, now),
+      'INSERT INTO shares (share_id, draft_id, title, content, created_at, note_updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).bind(shareId, draftId, title ?? '', content, now, noteUpdatedAt),
   ])
   const url = `${new URL(c.req.url).origin}/s/${shareId}`
   return c.json({ shareId, url })
@@ -237,13 +249,21 @@ app.delete('/share/:id', async (c) => {
 // Render a shared note (or a 404 page if revoked/unknown).
 app.get('/s/:id', async (c) => {
   await ensureSchema(c.env.SHARES)
-  const row = await c.env.SHARES.prepare('SELECT title, content FROM shares WHERE share_id = ?')
+  const row = await c.env.SHARES.prepare(
+    'SELECT title, content, note_updated_at FROM shares WHERE share_id = ?',
+  )
     .bind(c.req.param('id'))
-    .first<{ title: string; content: string }>()
+    .first<{ title: string; content: string; note_updated_at: number | null }>()
   if (!row) return c.html(<NotFoundPage />, 404)
   const bodyHtml = md.render(row.content)
   c.header('Cache-Control', 'public, max-age=300')
-  return c.html(<SharePage title={row.title || 'Shared note'} bodyHtml={bodyHtml} />)
+  return c.html(
+    <SharePage
+      title={row.title || 'Shared note'}
+      bodyHtml={bodyHtml}
+      updatedAt={row.note_updated_at ?? undefined}
+    />,
+  )
 })
 
 app.get('/', (c) => c.html(<Landing />))

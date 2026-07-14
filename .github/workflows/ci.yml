@@ -6,7 +6,9 @@ on:
   pull_request:
 
 jobs:
-  checks:
+  # Fast static gates. Kept separate so a flaky wrangler boot in the smoke job
+  # can never red-flag a clean typecheck/lint/format.
+  static:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -18,11 +20,22 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Fast static gates first, so a type/lint/format error fails before the
-      # slower route smoke test boots wrangler dev.
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm format:check
-      # Route smoke test: boots a local `wrangler dev` (miniflare R2 + D1) and
-      # asserts every route's status. Needs no secrets — the test provides its own.
+
+  # Route smoke test: boots a local `wrangler dev` (miniflare R2 + D1) and asserts
+  # every route's status. Needs no secrets — the test provides its own token.
+  smoke:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm test
