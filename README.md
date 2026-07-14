@@ -53,19 +53,19 @@ drafts store ──PUT/GET/DELETE /drafts──►  R2: drafts (sync store)
 
 ## Routes
 
-| Method | Path          | Auth   | Purpose                                     |
-| ------ | ------------- | ------ | ------------------------------------------- |
-| GET    | `/drafts`     | bearer | List `{ id, updatedAt, deleted }` (delta)   |
-| GET    | `/drafts/:id` | bearer | Fetch one draft's JSON                      |
-| PUT    | `/drafts/:id` | bearer | Upsert a draft                              |
-| DELETE | `/drafts/:id` | bearer | Write a tombstone                           |
-| POST   | `/share`      | bearer | Create/replace a share → `{ shareId, url }` |
-| GET    | `/shares`     | bearer | List live shares (the app's cache source)   |
-| DELETE | `/share/:id`  | bearer | Revoke a share (the link 404s)              |
-| GET    | `/s/:id`      | public | Render the shared note, or 404 if revoked   |
-| GET    | `/health`     | bearer | Connection check (app's "Test connection")  |
+| Method | Path          | Auth   | Purpose                                      |
+| ------ | ------------- | ------ | -------------------------------------------- |
+| GET    | `/drafts`     | bearer | List `{ id, updatedAt, deleted }` (delta)    |
+| GET    | `/drafts/:id` | bearer | Fetch one draft's JSON                       |
+| PUT    | `/drafts/:id` | bearer | Upsert a draft                               |
+| DELETE | `/drafts/:id` | bearer | Write a tombstone                            |
+| POST   | `/share`      | bearer | Create/replace a share → `{ shareId, url }`  |
+| GET    | `/shares`     | bearer | List live shares (the app's cache source)    |
+| DELETE | `/share/:id`  | bearer | Revoke a share (the link 404s)               |
+| GET    | `/s/:id`      | public | Render the shared note, or 404 if revoked    |
+| GET    | `/health`     | bearer | Connection check (app's "Test connection")   |
 | GET    | `/version`    | public | Deployed worker version (stale-worker check) |
-| GET    | `/`           | public | Friendly landing page                       |
+| GET    | `/`           | public | Friendly landing page                        |
 
 ## Develop
 

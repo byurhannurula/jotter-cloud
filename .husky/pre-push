@@ -1,0 +1,2 @@
+# Fast static gates before a push; the slow wrangler smoke test runs in CI.
+pnpm typecheck && pnpm lint && pnpm format:check
