@@ -1,17 +1,14 @@
-# Supply-chain hardening + build-script gating.
-#
-# minimumReleaseAge: refuse package versions published in the last N minutes
-# (2880 = 48h). Blocks most worm-style supply-chain attacks before they reach
-# an install. Only affects resolution of NEW versions; frozen-lockfile installs
+# Build-script gating. pnpm 11 fails `install` when a dependency has a build
+# script that isn't explicitly allowed. These three are wrangler's bundler and
+# runtime (+ its image dep); the smoke test boots `wrangler dev`, which needs
+# workerd and esbuild built. Written by `pnpm approve-builds`.
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
+
+# Supply-chain hardening: refuse package versions published in the last N
+# minutes (2880 = 48h). Blocks most worm-style attacks before an install can
+# pull them. Only affects resolution of new versions; frozen-lockfile installs
 # of already-pinned versions are unaffected.
 minimumReleaseAge: 2880
-
-# onlyBuiltDependencies: the allowlist of packages permitted to run install/build
-# scripts. pnpm 11 fails `install` when a dependency has a build script that is
-# neither approved here nor explicitly ignored — which is what was breaking CI.
-# These three are wrangler's bundler/runtime (+ its image dep); the smoke test
-# boots `wrangler dev`, which needs workerd and esbuild built.
-onlyBuiltDependencies:
-  - esbuild
-  - sharp
-  - workerd
