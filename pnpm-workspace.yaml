@@ -1,0 +1,14 @@
+# Build-script gating. pnpm 11 fails `install` when a dependency has a build
+# script that isn't explicitly allowed. These three are wrangler's bundler and
+# runtime (+ its image dep); the smoke test boots `wrangler dev`, which needs
+# workerd and esbuild built. Written by `pnpm approve-builds`.
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
+
+# Supply-chain hardening: refuse package versions published in the last N
+# minutes (2880 = 48h). Blocks most worm-style attacks before an install can
+# pull them. Only affects resolution of new versions; frozen-lockfile installs
+# of already-pinned versions are unaffected.
+minimumReleaseAge: 2880
