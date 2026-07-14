@@ -2,6 +2,7 @@ node_modules/
 dist/
 plans/
 .wrangler/
+.claude/settings.local.json
 .dev.vars
 .dev.vars.*
 *.log
