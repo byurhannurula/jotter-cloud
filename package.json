@@ -39,7 +39,7 @@
     "@cloudflare/workers-types": "^4.20241120.0",
     "@eslint/js": "^9.15.0",
     "@types/markdown-it": "^14.1.2",
-    "eslint": "^9.15.0",
+    "eslint": "^10.7.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
     "prettier": "^3.4.0",
