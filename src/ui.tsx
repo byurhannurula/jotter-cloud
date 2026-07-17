@@ -65,12 +65,18 @@ const CSS = `
   .lead { color: var(--muted); font-size: 1.05rem; }
 `
 
+// Inline "J" mark as a data-URI favicon — no binary asset to serve from the Worker.
+// Governed by CSP `img-src data:`, which is already allowed.
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0a84ff"/><text x="16" y="23" font-family="-apple-system,system-ui,sans-serif" font-size="21" font-weight="700" fill="#fff" text-anchor="middle">J</text></svg>`
+const FAVICON = `data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}`
+
 export const BaseLayout: FC<PropsWithChildren<{ title: string }>> = ({ title, children }) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <meta name="robots" content="noindex" />
+      <link rel="icon" href={FAVICON} />
       <title>{title}</title>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
     </head>
@@ -95,7 +101,7 @@ export const SharePage: FC<{ title: string; bodyHtml: string; updatedAt?: number
   bodyHtml,
   updatedAt,
 }) => (
-  <BaseLayout title={title}>
+  <BaseLayout title={`${title} — Jotter`}>
     <main class="prose" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
     <footer class="footer">
       {updatedAt ? `Updated ${fmtDate(updatedAt)} · ` : ''}shared from Jotter

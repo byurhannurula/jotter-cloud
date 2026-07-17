@@ -82,12 +82,19 @@ chk "GET tombstoned /drafts/:id"   404 "$(code -H "$AUTH" "$URL/drafts/draft-smo
 
 # --- share round-trip (D1) ---
 # updatedAt (ms) is optional; when sent it renders an "Updated <date>" footer line.
+# Empty title on purpose: exercises the first-heading title fallback ("# hi" -> "hi").
 SID="$(curl -s -X POST -H "$AUTH" -H 'content-type: application/json' \
-  -d '{"draftId":"draft-smoke","title":"T","content":"# hi","updatedAt":1720915200000}' "$URL/share" \
+  -d '{"draftId":"draft-smoke","title":"","content":"# hi","updatedAt":1720915200000}' "$URL/share" \
   | sed -E 's/.*"shareId":"([^"]+)".*/\1/')"
 chk "POST /share -> GET /s/:id"    200 "$(code "$URL/s/$SID")"
 chk "share page renders Updated"   Updated \
   "$(curl -s "$URL/s/$SID" | grep -o 'Updated' | head -1)"
+# Title falls back to the first heading ("hi") when the note has no title; tab
+# title is suffixed "— Jotter"; and the inline favicon is present.
+chk "tab title from first heading" "<title>hi — Jotter</title>" \
+  "$(curl -s "$URL/s/$SID" | grep -o '<title>hi — Jotter</title>' | head -1)"
+chk "share page has favicon"       1 \
+  "$(curl -s "$URL/s/$SID" | grep -c 'rel="icon"')"
 chk "DELETE /share/:id (revoke)"   200 "$(code -X DELETE -H "$AUTH" "$URL/share/$SID")"
 chk "GET /s/:id after revoke"      404 "$(code "$URL/s/$SID")"
 

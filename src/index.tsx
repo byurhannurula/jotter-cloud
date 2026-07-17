@@ -35,6 +35,20 @@ const WORKER_VERSION = '0.1.3'
 // Same renderer settings as the desktop app (untrusted markdown → no raw HTML).
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
 
+// First Markdown heading (`# ...`) in the note, stripped of inline markers, for use
+// as a title when the note itself has no title. Returns '' if there's no heading.
+function firstHeading(content: string): string {
+  const m = content.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m)
+  if (!m) return ''
+  return m[1].replace(/[*_`~]/g, '').trim()
+}
+
+// Title shown for a shared note: the note's own title, else its first heading, else
+// a neutral fallback. Trimmed so a whitespace-only title doesn't win.
+function resolveTitle(title: string | null | undefined, content: string): string {
+  return title?.trim() || firstHeading(content) || 'Shared note'
+}
+
 // Draft ids are `draft-<uuid>`; validate before touching R2 keys (block `..`, slashes).
 const DRAFT_ID = /^draft-[\w-]{1,80}$/
 
@@ -274,7 +288,7 @@ app.get('/s/:id', async (c) => {
   c.header('Cache-Control', 'public, max-age=300')
   return c.html(
     <SharePage
-      title={row.title || 'Shared note'}
+      title={resolveTitle(row.title, row.content)}
       bodyHtml={bodyHtml}
       updatedAt={row.note_updated_at ?? undefined}
     />,
