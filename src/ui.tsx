@@ -101,7 +101,17 @@ const CSS = `
 const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0a84ff"/><text x="16" y="23" font-family="-apple-system,system-ui,sans-serif" font-size="21" font-weight="700" fill="#fff" text-anchor="middle">J</text></svg>`
 const FAVICON = `data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}`
 
-export const BaseLayout: FC<PropsWithChildren<{ title: string }>> = ({ title, children }) => (
+// Static 1200x630 "Jotter" card served at /og.svg and used as the og:image. Static
+// (not per-note) by design; a per-note PNG card is a future upgrade.
+export const OG_CARD_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#0b0b0c"/><rect x="72" y="72" width="1056" height="486" rx="28" fill="#141416" stroke="#2c2c2e" stroke-width="2"/><rect x="120" y="150" width="96" height="96" rx="22" fill="#0a84ff"/><text x="168" y="216" font-family="-apple-system,system-ui,sans-serif" font-size="58" font-weight="700" fill="#fff" text-anchor="middle">J</text><text x="120" y="368" font-family="-apple-system,system-ui,sans-serif" font-size="76" font-weight="700" fill="#f5f5f7">Jotter</text><text x="122" y="432" font-family="-apple-system,system-ui,sans-serif" font-size="34" fill="#8a8a8e">A shared note</text></svg>`
+
+type OpenGraph = { title: string; description: string; image: string; url: string }
+
+export const BaseLayout: FC<PropsWithChildren<{ title: string; og?: OpenGraph }>> = ({
+  title,
+  og,
+  children,
+}) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
@@ -109,6 +119,19 @@ export const BaseLayout: FC<PropsWithChildren<{ title: string }>> = ({ title, ch
       <meta name="robots" content="noindex" />
       <link rel="icon" href={FAVICON} />
       <title>{title}</title>
+      {og ? (
+        <>
+          <meta property="og:title" content={og.title} />
+          <meta property="og:description" content={og.description} />
+          <meta property="og:type" content="article" />
+          <meta property="og:url" content={og.url} />
+          <meta property="og:image" content={og.image} />
+          <meta name="twitter:card" content="summary" />
+          <meta name="twitter:title" content={og.title} />
+          <meta name="twitter:description" content={og.description} />
+          <meta name="twitter:image" content={og.image} />
+        </>
+      ) : null}
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
     </head>
     <body>
@@ -191,6 +214,7 @@ type SharePageProps = {
   title: string
   bodyHtml: string
   rawPath: string
+  origin: string
   authorName?: string
   authorAvatar?: string
   wordCount?: number
@@ -206,6 +230,7 @@ export const SharePage: FC<SharePageProps> = ({
   title,
   bodyHtml,
   rawPath,
+  origin,
   authorName,
   authorAvatar,
   wordCount,
@@ -222,8 +247,18 @@ export const SharePage: FC<SharePageProps> = ({
   ]
     .filter(Boolean)
     .join(' · ')
+  // Text unfurl works everywhere; the SVG image is best-effort (see /og.svg).
+  const og = {
+    title,
+    description:
+      [authorName?.trim() || null, wordCount ? `${fmtCount(wordCount)} words` : null]
+        .filter(Boolean)
+        .join(' · ') || 'A note shared from Jotter',
+    image: `${origin}/og.svg`,
+    url: `${origin}${rawPath.replace(/\/raw$/, '')}`,
+  }
   return (
-    <BaseLayout title={`${title} — Jotter`}>
+    <BaseLayout title={`${title} — Jotter`} og={og}>
       <header class="share-head">
         {authorAvatar ? <img class="avatar" src={authorAvatar} alt="" /> : null}
         <div class="head-text">

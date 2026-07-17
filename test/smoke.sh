@@ -113,6 +113,12 @@ chk "raw is text/plain"            "text/plain" \
   "$(curl -s -D - -o /dev/null "$URL/s/$SID/raw" | grep -io 'text/plain' | head -1)"
 chk "raw returns markdown source"  "# hi" \
   "$(curl -s "$URL/s/$SID/raw")"
+# OG unfurl: share page carries og:title; the static card serves as image/svg+xml.
+chk "share page has og:title"      1 \
+  "$(curl -s "$URL/s/$SID" | grep -c 'property="og:title"')"
+chk "GET /og.svg"                  200 "$(code "$URL/og.svg")"
+chk "og.svg is image/svg+xml"      "image/svg+xml" \
+  "$(curl -s -D - -o /dev/null "$URL/og.svg" | grep -io 'image/svg+xml' | head -1)"
 chk "DELETE /share/:id (revoke)"   200 "$(code -X DELETE -H "$AUTH" "$URL/share/$SID")"
 chk "GET /s/:id after revoke"      404 "$(code "$URL/s/$SID")"
 

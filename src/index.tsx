@@ -3,7 +3,7 @@ import { bearerAuth } from 'hono/bearer-auth'
 import { timingSafeEqual } from 'hono/utils/buffer'
 import MarkdownIt from 'markdown-it'
 import { ensureSchema } from './db'
-import { Landing, NotFoundPage, SharePage } from './ui'
+import { Landing, NotFoundPage, OG_CARD_SVG, SharePage } from './ui'
 
 type Bindings = {
   DRAFTS: R2Bucket
@@ -291,6 +291,13 @@ app.delete('/share/:id', async (c) => {
 
 // --- Public pages ---
 
+// Static OG card image (referenced as og:image on share pages).
+app.get('/og.svg', (c) => {
+  c.header('Cache-Control', 'public, max-age=86400')
+  c.header('content-type', 'image/svg+xml; charset=utf-8')
+  return c.body(OG_CARD_SVG)
+})
+
 // Raw markdown source of a shared note, for "view raw" / "copy markdown".
 app.get('/s/:id/raw', async (c) => {
   await ensureSchema(c.env.SHARES)
@@ -327,6 +334,7 @@ app.get('/s/:id', async (c) => {
       title={resolveTitle(row.title, row.content)}
       bodyHtml={bodyHtml}
       rawPath={`/s/${id}/raw`}
+      origin={new URL(c.req.url).origin}
       authorName={c.env.AUTHOR_NAME}
       authorAvatar={c.env.AUTHOR_AVATAR}
       wordCount={row.word_count ?? wordCount(row.content)}
