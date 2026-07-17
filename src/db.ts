@@ -10,6 +10,11 @@ export type ShareRow = {
   // When the note itself was last edited (from the app), for an "Updated" line on
   // the share page. Null for shares created before the column / by older apps.
   note_updated_at: number | null
+  // Markdown pre-rendered to HTML at share time, so `/s/:id` doesn't re-render on
+  // every hit. Null for rows created before the column — the reader live-renders those.
+  rendered_html: string | null
+  // Word count of the note, for the share page's metadata line. Null on old rows.
+  word_count: number | null
 }
 
 // Cache the "schema exists" check per isolate so we don't re-run DDL on every request.
@@ -39,6 +44,12 @@ export async function ensureSchema(db: D1Database): Promise<void> {
   const have = new Set(cols.results.map((r) => r.name))
   if (!have.has('note_updated_at')) {
     await db.exec('ALTER TABLE shares ADD COLUMN note_updated_at INTEGER')
+  }
+  if (!have.has('rendered_html')) {
+    await db.exec('ALTER TABLE shares ADD COLUMN rendered_html TEXT')
+  }
+  if (!have.has('word_count')) {
+    await db.exec('ALTER TABLE shares ADD COLUMN word_count INTEGER')
   }
   schemaReady = true
 }

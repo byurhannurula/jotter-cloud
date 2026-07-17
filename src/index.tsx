@@ -49,6 +49,13 @@ function resolveTitle(title: string | null | undefined, content: string): string
   return title?.trim() || firstHeading(content) || 'Shared note'
 }
 
+// Rough word count of the raw markdown, for the share page's metadata line. Good
+// enough for "N words / M min read"; not trying to strip every markdown token.
+function wordCount(content: string): number {
+  const words = content.trim().match(/\S+/g)
+  return words ? words.length : 0
+}
+
 // Draft ids are `draft-<uuid>`; validate before touching R2 keys (block `..`, slashes).
 const DRAFT_ID = /^draft-[\w-]{1,80}$/
 
@@ -234,13 +241,16 @@ app.post('/share', async (c) => {
   if (byteLength(content) > MAX_SHARE_BYTES) return c.json({ error: 'content too large' }, 413)
   // Optional: when the note was last edited, for the share page's "Updated" line.
   const noteUpdatedAt = typeof updatedAt === 'number' ? updatedAt : null
+  // Render + count once, here, so `/s/:id` serves precomputed HTML on every hit.
+  const renderedHtml = md.render(content)
+  const words = wordCount(content)
   const shareId = newShareId()
   const now = Date.now()
   await c.env.SHARES.batch([
     c.env.SHARES.prepare('DELETE FROM shares WHERE draft_id = ?').bind(draftId),
     c.env.SHARES.prepare(
-      'INSERT INTO shares (share_id, draft_id, title, content, created_at, note_updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind(shareId, draftId, title ?? '', content, now, noteUpdatedAt),
+      'INSERT INTO shares (share_id, draft_id, title, content, created_at, note_updated_at, rendered_html, word_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(shareId, draftId, title ?? '', content, now, noteUpdatedAt, renderedHtml, words),
   ])
   const url = `${new URL(c.req.url).origin}/s/${shareId}`
   return c.json({ shareId, url })
@@ -279,12 +289,19 @@ app.delete('/share/:id', async (c) => {
 app.get('/s/:id', async (c) => {
   await ensureSchema(c.env.SHARES)
   const row = await c.env.SHARES.prepare(
-    'SELECT title, content, note_updated_at FROM shares WHERE share_id = ?',
+    'SELECT title, content, note_updated_at, rendered_html, word_count FROM shares WHERE share_id = ?',
   )
     .bind(c.req.param('id'))
-    .first<{ title: string; content: string; note_updated_at: number | null }>()
+    .first<{
+      title: string
+      content: string
+      note_updated_at: number | null
+      rendered_html: string | null
+      word_count: number | null
+    }>()
   if (!row) return c.html(<NotFoundPage />, 404)
-  const bodyHtml = md.render(row.content)
+  // Serve the HTML rendered at share time; live-render rows created before the column.
+  const bodyHtml = row.rendered_html ?? md.render(row.content)
   c.header('Cache-Control', 'public, max-age=300')
   return c.html(
     <SharePage
