@@ -20,4 +20,6 @@
   // For a manual deploy: `wrangler d1 create jotter-shares` then add its `database_id` here.
   "d1_databases": [{ "binding": "SHARES", "database_name": "jotter-shares" }],
   // SYNC_TOKEN is a secret — set with `wrangler secret put SYNC_TOKEN` (or the deploy prompt).
+  // AUTHOR_NAME / AUTHOR_AVATAR are optional secrets shown on shared-note pages;
+  // set them the same way (or leave unset — the share page degrades gracefully).
 }

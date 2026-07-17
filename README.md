@@ -5,7 +5,9 @@ optional cloud features of [Jotter](https://github.com/byurhannurula/jotter):
 
 - **Sync** — backs up and syncs your drafts across devices (stored in **R2**).
 - **Sharing** — turns a note into a read-only link that renders as a clean web page
-  (registry in **D1**, so you can revoke or reshare from any device).
+  (registry in **D1**, so you can revoke or reshare from any device). Each page shows
+  the note title, an optional author, a word-count / read-time / "shared … ago" line,
+  and **Copy link / Copy markdown / View raw** actions, with rich link previews.
 
 Everything is **single-user and opt-in**. You deploy this to _your own_ Cloudflare account,
 protect it with a token only you know, and paste the URL + token into Jotter's Sync
@@ -23,6 +25,17 @@ Then in Jotter: **Settings → Sync** → enable, paste the worker URL and the s
 
 > Pick a long random `SYNC_TOKEN` (Jotter's **Generate token** button makes one). It's the
 > only thing protecting your notes — treat it like a password.
+
+### Optional: personalize shared pages
+
+Two optional secrets add an identity to your shared-note pages (both safe to leave unset —
+the page degrades gracefully):
+
+- `AUTHOR_NAME` — a display name shown in the page header and link previews.
+- `AUTHOR_AVATAR` — URL of a small avatar image shown in the header.
+
+The one-click deploy prompts for these; set them later with
+`wrangler secret put AUTHOR_NAME` / `AUTHOR_AVATAR`.
 
 ### Manual / CLI deploy
 
@@ -63,6 +76,8 @@ drafts store ──PUT/GET/DELETE /drafts──►  R2: drafts (sync store)
 | GET    | `/shares`     | bearer | List live shares (the app's cache source)    |
 | DELETE | `/share/:id`  | bearer | Revoke a share (the link 404s)               |
 | GET    | `/s/:id`      | public | Render the shared note, or 404 if revoked    |
+| GET    | `/s/:id/raw`  | public | Raw markdown source (for view raw / copy)    |
+| GET    | `/og.svg`     | public | Static OG card image (link previews)         |
 | GET    | `/health`     | bearer | Connection check (app's "Test connection")   |
 | GET    | `/version`    | public | Deployed worker version (stale-worker check) |
 | GET    | `/`           | public | Friendly landing page                        |
@@ -77,11 +92,18 @@ pnpm lint           # eslint
 pnpm format         # prettier --write
 ```
 
-`.dev.vars` (gitignored) sets the token locally:
+`.dev.vars` (gitignored) sets the token (and optional author fields) locally:
 
 ```
-SYNC_TOKEN=dev-token
+SYNC_TOKEN=dev-token-at-least-16-chars
+AUTHOR_NAME=Your Name
+AUTHOR_AVATAR=https://example.com/avatar.png
 ```
+
+(The token must be at least 16 characters — shorter ones are rejected so the
+worker never runs unauthenticated.)
+
+`pnpm test` boots `wrangler dev` and smoke-tests every route.
 
 ## License
 

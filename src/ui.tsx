@@ -5,36 +5,45 @@ import type { FC, PropsWithChildren } from 'hono/jsx'
 const CSS = `
   :root {
     color-scheme: light dark;
+    --page-bg: #f5f5f7;
     --bg: #ffffff;
     --fg: #1c1c1e;
     --muted: #8a8a8e;
     --border: #e5e5ea;
     --link: #0a84ff;
     --code-bg: #f4f4f5;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.06);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #1c1c1e;
+      --page-bg: #0d0d0f;
+      --bg: #1a1a1c;
       --fg: #e8e8ea;
       --muted: #8a8a8e;
       --border: #2c2c2e;
       --link: #4aa3ff;
-      --code-bg: #2a2a2c;
+      --code-bg: #242426;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.4);
     }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
-    background: var(--bg);
+    background: var(--page-bg);
     color: var(--fg);
     font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 44rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 2.5rem 1.5rem 5rem; }
   .share-head {
     display: flex; gap: 0.85rem; align-items: center; flex-wrap: wrap;
-    margin-bottom: 2.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border);
+    margin: 0 0.25rem 1rem;
   }
+  .note-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 16px; padding: 2.25rem 2.5rem; box-shadow: var(--shadow);
+  }
+  @media (max-width: 34rem) { .note-card { padding: 1.5rem 1.35rem; border-radius: 13px; } }
   .avatar {
     width: 40px; height: 40px; border-radius: 50%;
     flex-shrink: 0; object-fit: cover; background: var(--code-bg);
@@ -63,6 +72,8 @@ const CSS = `
   .toast.show { opacity: 1; }
   @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
   .prose { overflow-wrap: break-word; }
+  .prose > :first-child { margin-top: 0; }
+  .prose > :last-child { margin-bottom: 0; }
   .prose h1, .prose h2, .prose h3 { line-height: 1.25; margin: 1.8em 0 0.6em; }
   .prose h1 { font-size: 1.9rem; }
   .prose h2 { font-size: 1.45rem; }
@@ -88,8 +99,7 @@ const CSS = `
   .prose table { border-collapse: collapse; }
   .prose th, .prose td { border: 1px solid var(--border); padding: 0.4em 0.7em; }
   .footer {
-    margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
-    color: var(--muted); font-size: 0.85rem;
+    margin: 1.5rem 0.25rem 0; color: var(--muted); font-size: 0.85rem;
   }
   .footer a { color: var(--muted); }
   .center { text-align: center; }
@@ -168,13 +178,6 @@ function timeAgo(ms: number): string {
   return `on ${fmtDate(ms)}`
 }
 
-// Human byte size for the metadata line. e.g. "812 B", "1.4 KB", "2.0 MB".
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`
-}
-
 // Thousands separators without relying on Intl (limited in Workers). e.g. "1,234".
 function fmtCount(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
@@ -218,7 +221,6 @@ type SharePageProps = {
   authorName?: string
   authorAvatar?: string
   wordCount?: number
-  sizeBytes: number
   createdAt: number
   updatedAt?: number
 }
@@ -234,7 +236,6 @@ export const SharePage: FC<SharePageProps> = ({
   authorName,
   authorAvatar,
   wordCount,
-  sizeBytes,
   createdAt,
   updatedAt,
 }) => {
@@ -242,7 +243,6 @@ export const SharePage: FC<SharePageProps> = ({
     authorName?.trim() || null,
     wordCount ? `${fmtCount(wordCount)} words` : null,
     wordCount ? `${readingTime(wordCount)} min read` : null,
-    fmtBytes(sizeBytes),
     `shared ${timeAgo(createdAt)}`,
   ]
     .filter(Boolean)
@@ -277,7 +277,7 @@ export const SharePage: FC<SharePageProps> = ({
           </a>
         </div>
       </header>
-      <main class="prose" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+      <main class="note-card prose" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       <footer class="footer">
         {updatedAt ? `Updated ${fmtDate(updatedAt)} · ` : ''}shared from Jotter
       </footer>

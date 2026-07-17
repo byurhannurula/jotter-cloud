@@ -36,7 +36,7 @@ app.use('*', async (c, next) => {
 
 // Worker version. Bump on each meaningful change so the desktop app can detect a
 // deployed worker that's behind and nudge a redeploy. Keep in sync with package.json.
-const WORKER_VERSION = '0.1.3'
+const WORKER_VERSION = '0.2.0'
 
 // Same renderer settings as the desktop app (untrusted markdown → no raw HTML).
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
@@ -60,6 +60,16 @@ function resolveTitle(title: string | null | undefined, content: string): string
 function wordCount(content: string): number {
   const words = content.trim().match(/\S+/g)
   return words ? words.length : 0
+}
+
+// The page header already shows the title, so a body that opens with the same H1
+// (a heading-led note) would render it twice. Drop that leading H1 when its text
+// matches the title; otherwise leave the body untouched.
+function stripLeadingH1(html: string, title: string): string {
+  const m = html.match(/^\s*<h1[^>]*>([\s\S]*?)<\/h1>\s*/)
+  if (!m) return html
+  const inner = m[1].replace(/<[^>]+>/g, '').trim()
+  return inner === title.trim() ? html.slice(m[0].length) : html
 }
 
 // Draft ids are `draft-<uuid>`; validate before touching R2 keys (block `..`, slashes).
@@ -340,18 +350,18 @@ app.get('/s/:id', async (c) => {
     }>()
   if (!row) return c.html(<NotFoundPage />, 404)
   // Serve the HTML rendered at share time; live-render rows created before the column.
-  const bodyHtml = row.rendered_html ?? md.render(row.content)
+  const title = resolveTitle(row.title, row.content)
+  const bodyHtml = stripLeadingH1(row.rendered_html ?? md.render(row.content), title)
   c.header('Cache-Control', 'public, max-age=300')
   return c.html(
     <SharePage
-      title={resolveTitle(row.title, row.content)}
+      title={title}
       bodyHtml={bodyHtml}
       rawPath={`/s/${id}/raw`}
       origin={new URL(c.req.url).origin}
       authorName={c.env.AUTHOR_NAME}
       authorAvatar={c.env.AUTHOR_AVATAR}
       wordCount={row.word_count ?? wordCount(row.content)}
-      sizeBytes={byteLength(row.content)}
       createdAt={row.created_at}
       updatedAt={row.note_updated_at ?? undefined}
     />,
