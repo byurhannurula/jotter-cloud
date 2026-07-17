@@ -25,7 +25,8 @@ TOKEN="smoke-test-token-0123456789"
 AUTH="Authorization: Bearer $TOKEN"
 BACKUP=""
 if [ -f .dev.vars ]; then BACKUP=".dev.vars.smoke-bak"; mv .dev.vars "$BACKUP"; fi
-echo "SYNC_TOKEN=$TOKEN" >.dev.vars
+# AUTHOR_NAME set so the share-page header/metadata assertion has something to find.
+{ echo "SYNC_TOKEN=$TOKEN"; echo "AUTHOR_NAME=Smoke Tester"; } >.dev.vars
 
 echo "Starting wrangler dev on :$PORT …"
 npx wrangler dev --port "$PORT" >/tmp/jotter-cloud-smoke.log 2>&1 &
@@ -95,6 +96,11 @@ chk "tab title from first heading" "<title>hi — Jotter</title>" \
   "$(curl -s "$URL/s/$SID" | grep -o '<title>hi — Jotter</title>' | head -1)"
 chk "share page has favicon"       1 \
   "$(curl -s "$URL/s/$SID" | grep -c 'rel="icon"')"
+# Header shows the configured author; metadata row shows word count + read time.
+chk "meta shows author name"       "Smoke Tester" \
+  "$(curl -s "$URL/s/$SID" | grep -o 'Smoke Tester' | head -1)"
+chk "meta shows read time"         "min read" \
+  "$(curl -s "$URL/s/$SID" | grep -o 'min read' | head -1)"
 chk "DELETE /share/:id (revoke)"   200 "$(code -X DELETE -H "$AUTH" "$URL/share/$SID")"
 chk "GET /s/:id after revoke"      404 "$(code "$URL/s/$SID")"
 

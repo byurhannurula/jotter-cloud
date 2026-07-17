@@ -9,6 +9,9 @@ type Bindings = {
   DRAFTS: R2Bucket
   SHARES: D1Database
   SYNC_TOKEN: string
+  // Optional identity shown on shared pages. Both fall back gracefully when unset.
+  AUTHOR_NAME?: string
+  AUTHOR_AVATAR?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -289,12 +292,13 @@ app.delete('/share/:id', async (c) => {
 app.get('/s/:id', async (c) => {
   await ensureSchema(c.env.SHARES)
   const row = await c.env.SHARES.prepare(
-    'SELECT title, content, note_updated_at, rendered_html, word_count FROM shares WHERE share_id = ?',
+    'SELECT title, content, created_at, note_updated_at, rendered_html, word_count FROM shares WHERE share_id = ?',
   )
     .bind(c.req.param('id'))
     .first<{
       title: string
       content: string
+      created_at: number
       note_updated_at: number | null
       rendered_html: string | null
       word_count: number | null
@@ -307,6 +311,11 @@ app.get('/s/:id', async (c) => {
     <SharePage
       title={resolveTitle(row.title, row.content)}
       bodyHtml={bodyHtml}
+      authorName={c.env.AUTHOR_NAME}
+      authorAvatar={c.env.AUTHOR_AVATAR}
+      wordCount={row.word_count ?? wordCount(row.content)}
+      sizeBytes={byteLength(row.content)}
+      createdAt={row.created_at}
       updatedAt={row.note_updated_at ?? undefined}
     />,
   )

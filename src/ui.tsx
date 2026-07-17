@@ -30,7 +30,21 @@ const CSS = `
     font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 44rem; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+  .wrap { max-width: 44rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+  .share-head {
+    display: flex; gap: 0.85rem; align-items: center;
+    margin-bottom: 2.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border);
+  }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    flex-shrink: 0; object-fit: cover; background: var(--code-bg);
+  }
+  .head-text { min-width: 0; }
+  .doc-title {
+    font-size: 1.5rem; font-weight: 600; line-height: 1.25;
+    margin: 0 0 0.2rem; overflow-wrap: break-word;
+  }
+  .meta { margin: 0; color: var(--muted); font-size: 0.85rem; }
   .prose { overflow-wrap: break-word; }
   .prose h1, .prose h2, .prose h3 { line-height: 1.25; margin: 1.8em 0 0.6em; }
   .prose h1 { font-size: 1.9rem; }
@@ -94,20 +108,89 @@ function fmtDate(ms: number): string {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
-// A rendered note (markdown-it → HTML, html:false upstream) in a clean reading column.
-// `updatedAt` (ms) is optional — older apps/shares don't send it, so the line is omitted.
-export const SharePage: FC<{ title: string; bodyHtml: string; updatedAt?: number }> = ({
+// "just now" / "5 min ago" / "3 hours ago" / "2 days ago", else an absolute date.
+function timeAgo(ms: number): string {
+  const s = Math.floor((Date.now() - ms) / 1000)
+  if (s < 60) return 'just now'
+  const units: [number, string][] = [
+    [3600, 'min'],
+    [86400, 'hour'],
+    [2592000, 'day'],
+  ]
+  for (let i = 0; i < units.length; i++) {
+    const [limit, name] = units[i]
+    if (s < limit) {
+      const div = i === 0 ? 60 : units[i - 1][0]
+      const n = Math.floor(s / div)
+      return `${n} ${name}${n === 1 ? '' : 's'} ago`
+    }
+  }
+  return `on ${fmtDate(ms)}`
+}
+
+// Human byte size for the metadata line. e.g. "812 B", "1.4 KB", "2.0 MB".
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Thousands separators without relying on Intl (limited in Workers). e.g. "1,234".
+function fmtCount(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+const readingTime = (words: number): number => Math.max(1, Math.ceil(words / 200))
+
+type SharePageProps = {
+  title: string
+  bodyHtml: string
+  authorName?: string
+  authorAvatar?: string
+  wordCount?: number
+  sizeBytes: number
+  createdAt: number
+  updatedAt?: number
+}
+
+// A rendered note (markdown-it → HTML, html:false upstream) with an identity header,
+// a metadata line, and a clean reading column. Author name/avatar are optional and
+// the header degrades gracefully to just the title + metadata when they're unset.
+export const SharePage: FC<SharePageProps> = ({
   title,
   bodyHtml,
+  authorName,
+  authorAvatar,
+  wordCount,
+  sizeBytes,
+  createdAt,
   updatedAt,
-}) => (
-  <BaseLayout title={`${title} — Jotter`}>
-    <main class="prose" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-    <footer class="footer">
-      {updatedAt ? `Updated ${fmtDate(updatedAt)} · ` : ''}shared from Jotter
-    </footer>
-  </BaseLayout>
-)
+}) => {
+  const meta = [
+    authorName?.trim() || null,
+    wordCount ? `${fmtCount(wordCount)} words` : null,
+    wordCount ? `${readingTime(wordCount)} min read` : null,
+    fmtBytes(sizeBytes),
+    `shared ${timeAgo(createdAt)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <BaseLayout title={`${title} — Jotter`}>
+      <header class="share-head">
+        {authorAvatar ? <img class="avatar" src={authorAvatar} alt="" /> : null}
+        <div class="head-text">
+          <h1 class="doc-title">{title}</h1>
+          <p class="meta">{meta}</p>
+        </div>
+      </header>
+      <main class="prose" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+      <footer class="footer">
+        {updatedAt ? `Updated ${fmtDate(updatedAt)} · ` : ''}shared from Jotter
+      </footer>
+    </BaseLayout>
+  )
+}
 
 export const Landing: FC = () => (
   <BaseLayout title="Jotter sync worker">
