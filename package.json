@@ -1,6 +1,6 @@
 {
   "name": "jotter-cloud",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Self-hosted Cloudflare Worker for Jotter — drafts sync (R2) and read-only sharing (D1).",
@@ -11,6 +11,12 @@
     "bindings": {
       "SYNC_TOKEN": {
         "description": "Shared secret that protects your notes. Generate one in Jotter (Settings -> Sync -> Generate token) and paste the SAME value here. It is the only thing guarding sync and sharing - treat it like a password. Do not leave this blank."
+      },
+      "AUTHOR_NAME": {
+        "description": "Optional. A display name shown on your shared-note pages (e.g. your name). Leave blank to omit."
+      },
+      "AUTHOR_AVATAR": {
+        "description": "Optional. URL of a small avatar image shown on your shared-note pages. Leave blank to omit."
       }
     }
   },

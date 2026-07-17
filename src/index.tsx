@@ -3,12 +3,15 @@ import { bearerAuth } from 'hono/bearer-auth'
 import { timingSafeEqual } from 'hono/utils/buffer'
 import MarkdownIt from 'markdown-it'
 import { ensureSchema } from './db'
-import { Landing, NotFoundPage, SharePage } from './ui'
+import { Landing, NotFoundPage, OG_CARD_SVG, SharePage } from './ui'
 
 type Bindings = {
   DRAFTS: R2Bucket
   SHARES: D1Database
   SYNC_TOKEN: string
+  // Optional identity shown on shared pages. Both fall back gracefully when unset.
+  AUTHOR_NAME?: string
+  AUTHOR_AVATAR?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -18,8 +21,11 @@ const app = new Hono<{ Bindings: Bindings }>()
 // `html:false` upstream, so the CSP is defense-in-depth. `style-src 'unsafe-inline'`
 // covers the page's inline <style>; `img-src https: data:` covers avatars and any
 // image embedded in a shared note.
+// `script-src 'unsafe-inline'` for the share page's small copy-button script, and
+// `connect-src 'self'` so its "copy markdown" fetch to /s/:id/raw isn't blocked by
+// the `default-src 'none'` fallback. Everything else stays locked down.
 const CSP =
-  "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+  "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"
 app.use('*', async (c, next) => {
   await next()
   c.header('X-Content-Type-Options', 'nosniff')
@@ -30,10 +36,41 @@ app.use('*', async (c, next) => {
 
 // Worker version. Bump on each meaningful change so the desktop app can detect a
 // deployed worker that's behind and nudge a redeploy. Keep in sync with package.json.
-const WORKER_VERSION = '0.1.3'
+const WORKER_VERSION = '0.2.0'
 
 // Same renderer settings as the desktop app (untrusted markdown → no raw HTML).
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
+
+// First Markdown heading (`# ...`) in the note, stripped of inline markers, for use
+// as a title when the note itself has no title. Returns '' if there's no heading.
+function firstHeading(content: string): string {
+  const m = content.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m)
+  if (!m) return ''
+  return m[1].replace(/[*_`~]/g, '').trim()
+}
+
+// Title shown for a shared note: the note's own title, else its first heading, else
+// a neutral fallback. Trimmed so a whitespace-only title doesn't win.
+function resolveTitle(title: string | null | undefined, content: string): string {
+  return title?.trim() || firstHeading(content) || 'Shared note'
+}
+
+// Rough word count of the raw markdown, for the share page's metadata line. Good
+// enough for "N words / M min read"; not trying to strip every markdown token.
+function wordCount(content: string): number {
+  const words = content.trim().match(/\S+/g)
+  return words ? words.length : 0
+}
+
+// The page header already shows the title, so a body that opens with the same H1
+// (a heading-led note) would render it twice. Drop that leading H1 when its text
+// matches the title; otherwise leave the body untouched.
+function stripLeadingH1(html: string, title: string): string {
+  const m = html.match(/^\s*<h1[^>]*>([\s\S]*?)<\/h1>\s*/)
+  if (!m) return html
+  const inner = m[1].replace(/<[^>]+>/g, '').trim()
+  return inner === title.trim() ? html.slice(m[0].length) : html
+}
 
 // Draft ids are `draft-<uuid>`; validate before touching R2 keys (block `..`, slashes).
 const DRAFT_ID = /^draft-[\w-]{1,80}$/
@@ -124,9 +161,18 @@ app.get('/health', async (c) => {
 
 // --- Sync: R2 drafts store ---
 
+// Tombstones (deleted drafts) linger so other devices learn of the deletion; after
+// this long every device has surely converged, so we garbage-collect them during the
+// list pass to keep the store (and the delta listing) from growing without bound.
+const TOMBSTONE_TTL_MS = 90 * 24 * 60 * 60 * 1000 // 90 days
+
 // List every object's delta metadata (id + updatedAt + deleted) for the pull pass.
+// Old tombstones are dropped here (deleted from R2 after the response via waitUntil)
+// and omitted from the listing.
 app.get('/drafts', async (c) => {
   const drafts: { id: string; updatedAt: number; deleted: boolean }[] = []
+  const expired: string[] = []
+  const cutoff = Date.now() - TOMBSTONE_TTL_MS
   let cursor: string | undefined
   do {
     const page = await c.env.DRAFTS.list({
@@ -137,14 +183,18 @@ app.get('/drafts', async (c) => {
     for (const o of page.objects) {
       const id = o.key.slice('drafts/'.length).replace(/\.json$/, '')
       const meta = o.customMetadata ?? {}
-      drafts.push({
-        id,
-        updatedAt: Number(meta.updatedAt ?? 0),
-        deleted: meta.deleted === '1',
-      })
+      const updatedAt = Number(meta.updatedAt ?? 0)
+      const deleted = meta.deleted === '1'
+      // GC an aged tombstone: delete the R2 object and leave it out of the listing.
+      if (deleted && updatedAt > 0 && updatedAt < cutoff) {
+        expired.push(o.key)
+        continue
+      }
+      drafts.push({ id, updatedAt, deleted })
     }
     cursor = page.truncated ? page.cursor : undefined
   } while (cursor)
+  if (expired.length) c.executionCtx.waitUntil(c.env.DRAFTS.delete(expired))
   return c.json({ drafts })
 })
 
@@ -220,13 +270,16 @@ app.post('/share', async (c) => {
   if (byteLength(content) > MAX_SHARE_BYTES) return c.json({ error: 'content too large' }, 413)
   // Optional: when the note was last edited, for the share page's "Updated" line.
   const noteUpdatedAt = typeof updatedAt === 'number' ? updatedAt : null
+  // Render + count once, here, so `/s/:id` serves precomputed HTML on every hit.
+  const renderedHtml = md.render(content)
+  const words = wordCount(content)
   const shareId = newShareId()
   const now = Date.now()
   await c.env.SHARES.batch([
     c.env.SHARES.prepare('DELETE FROM shares WHERE draft_id = ?').bind(draftId),
     c.env.SHARES.prepare(
-      'INSERT INTO shares (share_id, draft_id, title, content, created_at, note_updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind(shareId, draftId, title ?? '', content, now, noteUpdatedAt),
+      'INSERT INTO shares (share_id, draft_id, title, content, created_at, note_updated_at, rendered_html, word_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(shareId, draftId, title ?? '', content, now, noteUpdatedAt, renderedHtml, words),
   ])
   const url = `${new URL(c.req.url).origin}/s/${shareId}`
   return c.json({ shareId, url })
@@ -261,21 +314,55 @@ app.delete('/share/:id', async (c) => {
 
 // --- Public pages ---
 
+// Static OG card image (referenced as og:image on share pages).
+app.get('/og.svg', (c) => {
+  c.header('Cache-Control', 'public, max-age=86400')
+  c.header('content-type', 'image/svg+xml; charset=utf-8')
+  return c.body(OG_CARD_SVG)
+})
+
+// Raw markdown source of a shared note, for "view raw" / "copy markdown".
+app.get('/s/:id/raw', async (c) => {
+  await ensureSchema(c.env.SHARES)
+  const row = await c.env.SHARES.prepare('SELECT content FROM shares WHERE share_id = ?')
+    .bind(c.req.param('id'))
+    .first<{ content: string }>()
+  if (!row) return c.text('not found', 404)
+  c.header('Cache-Control', 'public, max-age=300')
+  return c.text(row.content)
+})
+
 // Render a shared note (or a 404 page if revoked/unknown).
 app.get('/s/:id', async (c) => {
   await ensureSchema(c.env.SHARES)
+  const id = c.req.param('id')
   const row = await c.env.SHARES.prepare(
-    'SELECT title, content, note_updated_at FROM shares WHERE share_id = ?',
+    'SELECT title, content, created_at, note_updated_at, rendered_html, word_count FROM shares WHERE share_id = ?',
   )
-    .bind(c.req.param('id'))
-    .first<{ title: string; content: string; note_updated_at: number | null }>()
+    .bind(id)
+    .first<{
+      title: string
+      content: string
+      created_at: number
+      note_updated_at: number | null
+      rendered_html: string | null
+      word_count: number | null
+    }>()
   if (!row) return c.html(<NotFoundPage />, 404)
-  const bodyHtml = md.render(row.content)
+  // Serve the HTML rendered at share time; live-render rows created before the column.
+  const title = resolveTitle(row.title, row.content)
+  const bodyHtml = stripLeadingH1(row.rendered_html ?? md.render(row.content), title)
   c.header('Cache-Control', 'public, max-age=300')
   return c.html(
     <SharePage
-      title={row.title || 'Shared note'}
+      title={title}
       bodyHtml={bodyHtml}
+      rawPath={`/s/${id}/raw`}
+      origin={new URL(c.req.url).origin}
+      authorName={c.env.AUTHOR_NAME}
+      authorAvatar={c.env.AUTHOR_AVATAR}
+      wordCount={row.word_count ?? wordCount(row.content)}
+      createdAt={row.created_at}
       updatedAt={row.note_updated_at ?? undefined}
     />,
   )

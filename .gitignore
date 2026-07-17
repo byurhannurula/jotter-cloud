@@ -7,3 +7,4 @@ plans/
 .dev.vars.*
 *.log
 .DS_Store
+.playwright-mcp/

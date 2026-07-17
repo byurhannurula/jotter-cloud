@@ -25,7 +25,8 @@ TOKEN="smoke-test-token-0123456789"
 AUTH="Authorization: Bearer $TOKEN"
 BACKUP=""
 if [ -f .dev.vars ]; then BACKUP=".dev.vars.smoke-bak"; mv .dev.vars "$BACKUP"; fi
-echo "SYNC_TOKEN=$TOKEN" >.dev.vars
+# AUTHOR_NAME set so the share-page header/metadata assertion has something to find.
+{ echo "SYNC_TOKEN=$TOKEN"; echo "AUTHOR_NAME=Smoke Tester"; } >.dev.vars
 
 echo "Starting wrangler dev on :$PORT …"
 npx wrangler dev --port "$PORT" >/tmp/jotter-cloud-smoke.log 2>&1 &
@@ -79,15 +80,48 @@ code -X PUT -H "$AUTH" -H 'content-type: application/json' \
 chk "PUT then GET /drafts/:id"     200 "$(code -H "$AUTH" "$URL/drafts/draft-smoke")"
 chk "DELETE /drafts/:id"           200 "$(code -X DELETE -H "$AUTH" "$URL/drafts/draft-smoke")"
 chk "GET tombstoned /drafts/:id"   404 "$(code -H "$AUTH" "$URL/drafts/draft-smoke")"
+# A fresh tombstone must still appear in the delta list (GC only drops aged ones).
+chk "fresh tombstone still lists"  1 \
+  "$(curl -s -H "$AUTH" "$URL/drafts" | grep -c 'draft-smoke')"
 
 # --- share round-trip (D1) ---
 # updatedAt (ms) is optional; when sent it renders an "Updated <date>" footer line.
+# Empty title on purpose: exercises the first-heading title fallback ("# hi" -> "hi").
 SID="$(curl -s -X POST -H "$AUTH" -H 'content-type: application/json' \
-  -d '{"draftId":"draft-smoke","title":"T","content":"# hi","updatedAt":1720915200000}' "$URL/share" \
+  -d '{"draftId":"draft-smoke","title":"","content":"# hi","updatedAt":1720915200000}' "$URL/share" \
   | sed -E 's/.*"shareId":"([^"]+)".*/\1/')"
 chk "POST /share -> GET /s/:id"    200 "$(code "$URL/s/$SID")"
 chk "share page renders Updated"   Updated \
   "$(curl -s "$URL/s/$SID" | grep -o 'Updated' | head -1)"
+# Title falls back to the first heading ("hi") when the note has no title; tab
+# title is suffixed "— Jotter"; and the inline favicon is present.
+chk "tab title from first heading" "<title>hi — Jotter</title>" \
+  "$(curl -s "$URL/s/$SID" | grep -o '<title>hi — Jotter</title>' | head -1)"
+chk "share page has favicon"       1 \
+  "$(curl -s "$URL/s/$SID" | grep -c 'rel="icon"')"
+# Header shows the configured author; metadata row shows word count + read time.
+chk "meta shows author name"       "Smoke Tester" \
+  "$(curl -s "$URL/s/$SID" | grep -o 'Smoke Tester' | head -1)"
+chk "meta shows read time"         "min read" \
+  "$(curl -s "$URL/s/$SID" | grep -o 'min read' | head -1)"
+# Action buttons present, and /s/:id/raw returns the plain markdown source.
+chk "share page has copy button"   1 \
+  "$(curl -s "$URL/s/$SID" | grep -c 'id="copy-link"')"
+# CSP must permit the inline script and its same-origin /raw fetch, or the buttons
+# silently break. Assert both directives are present on the HTML response.
+chk "CSP allows script + connect"  2 \
+  "$(curl -s -D - -o /dev/null "$URL/s/$SID" | grep -io "content-security-policy:.*" | grep -o -e "script-src 'unsafe-inline'" -e "connect-src 'self'" | grep -c .)"
+chk "GET /s/:id/raw"               200 "$(code "$URL/s/$SID/raw")"
+chk "raw is text/plain"            "text/plain" \
+  "$(curl -s -D - -o /dev/null "$URL/s/$SID/raw" | grep -io 'text/plain' | head -1)"
+chk "raw returns markdown source"  "# hi" \
+  "$(curl -s "$URL/s/$SID/raw")"
+# OG unfurl: share page carries og:title; the static card serves as image/svg+xml.
+chk "share page has og:title"      1 \
+  "$(curl -s "$URL/s/$SID" | grep -c 'property="og:title"')"
+chk "GET /og.svg"                  200 "$(code "$URL/og.svg")"
+chk "og.svg is image/svg+xml"      "image/svg+xml" \
+  "$(curl -s -D - -o /dev/null "$URL/og.svg" | grep -io 'image/svg+xml' | head -1)"
 chk "DELETE /share/:id (revoke)"   200 "$(code -X DELETE -H "$AUTH" "$URL/share/$SID")"
 chk "GET /s/:id after revoke"      404 "$(code "$URL/s/$SID")"
 
