@@ -32,19 +32,36 @@ const CSS = `
   }
   .wrap { max-width: 44rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
   .share-head {
-    display: flex; gap: 0.85rem; align-items: center;
+    display: flex; gap: 0.85rem; align-items: center; flex-wrap: wrap;
     margin-bottom: 2.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border);
   }
   .avatar {
     width: 40px; height: 40px; border-radius: 50%;
     flex-shrink: 0; object-fit: cover; background: var(--code-bg);
   }
-  .head-text { min-width: 0; }
+  .head-text { min-width: 0; flex: 1 1 12rem; }
   .doc-title {
     font-size: 1.5rem; font-weight: 600; line-height: 1.25;
     margin: 0 0 0.2rem; overflow-wrap: break-word;
   }
   .meta { margin: 0; color: var(--muted); font-size: 0.85rem; }
+  .actions { display: flex; gap: 0.4rem; margin-left: auto; flex-shrink: 0; }
+  .btn {
+    font: inherit; font-size: 0.82rem; line-height: 1; white-space: nowrap;
+    color: var(--fg); background: var(--code-bg);
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 0.4rem 0.7rem; cursor: pointer; text-decoration: none;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%);
+    background: var(--fg); color: var(--bg);
+    padding: 0.5rem 0.9rem; border-radius: 999px; font-size: 0.85rem;
+    opacity: 0; transition: opacity 0.25s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
   .prose { overflow-wrap: break-word; }
   .prose h1, .prose h2, .prose h3 { line-height: 1.25; margin: 1.8em 0 0.6em; }
   .prose h1 { font-size: 1.9rem; }
@@ -142,9 +159,38 @@ function fmtCount(n: number): string {
 
 const readingTime = (words: number): number => Math.max(1, Math.ceil(words / 200))
 
+// Clipboard actions for the share page. Uses `location` so no server data is injected
+// into the script; the raw source is fetched from the sibling /raw path on demand.
+const SHARE_SCRIPT = `
+(function () {
+  var toastEl = document.getElementById('toast');
+  function toast(msg) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(function () { toastEl.classList.remove('show'); }, 1800);
+  }
+  var link = document.getElementById('copy-link');
+  if (link) link.addEventListener('click', function () {
+    navigator.clipboard.writeText(location.href).then(
+      function () { toast('Link copied'); },
+      function () { toast('Copy failed'); }
+    );
+  });
+  var md = document.getElementById('copy-md');
+  if (md) md.addEventListener('click', function () {
+    fetch(location.pathname + '/raw')
+      .then(function (r) { return r.text(); })
+      .then(function (t) { return navigator.clipboard.writeText(t); })
+      .then(function () { toast('Markdown copied'); }, function () { toast('Copy failed'); });
+  });
+})();
+`
+
 type SharePageProps = {
   title: string
   bodyHtml: string
+  rawPath: string
   authorName?: string
   authorAvatar?: string
   wordCount?: number
@@ -159,6 +205,7 @@ type SharePageProps = {
 export const SharePage: FC<SharePageProps> = ({
   title,
   bodyHtml,
+  rawPath,
   authorName,
   authorAvatar,
   wordCount,
@@ -183,11 +230,24 @@ export const SharePage: FC<SharePageProps> = ({
           <h1 class="doc-title">{title}</h1>
           <p class="meta">{meta}</p>
         </div>
+        <div class="actions">
+          <button type="button" class="btn" id="copy-link">
+            Copy link
+          </button>
+          <button type="button" class="btn" id="copy-md">
+            Copy markdown
+          </button>
+          <a class="btn" href={rawPath}>
+            View raw
+          </a>
+        </div>
       </header>
       <main class="prose" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       <footer class="footer">
         {updatedAt ? `Updated ${fmtDate(updatedAt)} · ` : ''}shared from Jotter
       </footer>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <script dangerouslySetInnerHTML={{ __html: SHARE_SCRIPT }} />
     </BaseLayout>
   )
 }

@@ -21,8 +21,11 @@ const app = new Hono<{ Bindings: Bindings }>()
 // `html:false` upstream, so the CSP is defense-in-depth. `style-src 'unsafe-inline'`
 // covers the page's inline <style>; `img-src https: data:` covers avatars and any
 // image embedded in a shared note.
+// `script-src 'unsafe-inline'` for the share page's small copy-button script, and
+// `connect-src 'self'` so its "copy markdown" fetch to /s/:id/raw isn't blocked by
+// the `default-src 'none'` fallback. Everything else stays locked down.
 const CSP =
-  "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+  "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"
 app.use('*', async (c, next) => {
   await next()
   c.header('X-Content-Type-Options', 'nosniff')
@@ -288,13 +291,25 @@ app.delete('/share/:id', async (c) => {
 
 // --- Public pages ---
 
+// Raw markdown source of a shared note, for "view raw" / "copy markdown".
+app.get('/s/:id/raw', async (c) => {
+  await ensureSchema(c.env.SHARES)
+  const row = await c.env.SHARES.prepare('SELECT content FROM shares WHERE share_id = ?')
+    .bind(c.req.param('id'))
+    .first<{ content: string }>()
+  if (!row) return c.text('not found', 404)
+  c.header('Cache-Control', 'public, max-age=300')
+  return c.text(row.content)
+})
+
 // Render a shared note (or a 404 page if revoked/unknown).
 app.get('/s/:id', async (c) => {
   await ensureSchema(c.env.SHARES)
+  const id = c.req.param('id')
   const row = await c.env.SHARES.prepare(
     'SELECT title, content, created_at, note_updated_at, rendered_html, word_count FROM shares WHERE share_id = ?',
   )
-    .bind(c.req.param('id'))
+    .bind(id)
     .first<{
       title: string
       content: string
@@ -311,6 +326,7 @@ app.get('/s/:id', async (c) => {
     <SharePage
       title={resolveTitle(row.title, row.content)}
       bodyHtml={bodyHtml}
+      rawPath={`/s/${id}/raw`}
       authorName={c.env.AUTHOR_NAME}
       authorAvatar={c.env.AUTHOR_AVATAR}
       wordCount={row.word_count ?? wordCount(row.content)}

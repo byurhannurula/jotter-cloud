@@ -101,6 +101,18 @@ chk "meta shows author name"       "Smoke Tester" \
   "$(curl -s "$URL/s/$SID" | grep -o 'Smoke Tester' | head -1)"
 chk "meta shows read time"         "min read" \
   "$(curl -s "$URL/s/$SID" | grep -o 'min read' | head -1)"
+# Action buttons present, and /s/:id/raw returns the plain markdown source.
+chk "share page has copy button"   1 \
+  "$(curl -s "$URL/s/$SID" | grep -c 'id="copy-link"')"
+# CSP must permit the inline script and its same-origin /raw fetch, or the buttons
+# silently break. Assert both directives are present on the HTML response.
+chk "CSP allows script + connect"  2 \
+  "$(curl -s -D - -o /dev/null "$URL/s/$SID" | grep -io "content-security-policy:.*" | grep -o -e "script-src 'unsafe-inline'" -e "connect-src 'self'" | grep -c .)"
+chk "GET /s/:id/raw"               200 "$(code "$URL/s/$SID/raw")"
+chk "raw is text/plain"            "text/plain" \
+  "$(curl -s -D - -o /dev/null "$URL/s/$SID/raw" | grep -io 'text/plain' | head -1)"
+chk "raw returns markdown source"  "# hi" \
+  "$(curl -s "$URL/s/$SID/raw")"
 chk "DELETE /share/:id (revoke)"   200 "$(code -X DELETE -H "$AUTH" "$URL/share/$SID")"
 chk "GET /s/:id after revoke"      404 "$(code "$URL/s/$SID")"
 
