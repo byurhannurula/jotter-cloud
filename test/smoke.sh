@@ -91,5 +91,16 @@ chk "share page renders Updated"   Updated \
 chk "DELETE /share/:id (revoke)"   200 "$(code -X DELETE -H "$AUTH" "$URL/share/$SID")"
 chk "GET /s/:id after revoke"      404 "$(code "$URL/s/$SID")"
 
+# --- delete cascades to the share (a deleted note must not stay live at its link) ---
+code -X PUT -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"id":"draft-casc","title":"","content":"secret","updated_at":9}' \
+  "$URL/drafts/draft-casc" >/dev/null
+CSID="$(curl -s -X POST -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"draftId":"draft-casc","title":"C","content":"# secret"}' "$URL/share" \
+  | sed -E 's/.*"shareId":"([^"]+)".*/\1/')"
+chk "share live before delete"     200 "$(code "$URL/s/$CSID")"
+code -X DELETE -H "$AUTH" "$URL/drafts/draft-casc" >/dev/null
+chk "delete draft revokes share"   404 "$(code "$URL/s/$CSID")"
+
 if [ "$fail" = "0" ]; then echo "PASS — all routes ok"; else echo "SMOKE FAILED"; fi
 exit "$fail"

@@ -30,7 +30,7 @@ app.use('*', async (c, next) => {
 
 // Worker version. Bump on each meaningful change so the desktop app can detect a
 // deployed worker that's behind and nudge a redeploy. Keep in sync with package.json.
-const WORKER_VERSION = '0.1.2'
+const WORKER_VERSION = '0.1.3'
 
 // Same renderer settings as the desktop app (untrusted markdown → no raw HTML).
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
@@ -187,6 +187,18 @@ app.delete('/drafts/:id', async (c) => {
   await c.env.DRAFTS.put(DRAFT_KEY(id), '', {
     customMetadata: { updatedAt: String(now), deleted: '1' },
   })
+  // A deleted note must not stay readable at its public /s/:id link. Revoke any
+  // share for this draft so the link 404s. Runs here (not only on the client's
+  // explicit revoke) so a deletion that arrives from *another* device — where the
+  // app's local share cache never saw it — still kills the link. Best-effort: the
+  // R2 tombstone above is what propagates the deletion, so a D1 hiccup here must
+  // not fail the request (the app would otherwise retry and never converge).
+  try {
+    await ensureSchema(c.env.SHARES)
+    await c.env.SHARES.prepare('DELETE FROM shares WHERE draft_id = ?').bind(id).run()
+  } catch (err) {
+    console.error('share cascade on draft delete failed:', err)
+  }
   return c.json({ ok: true, updatedAt: now })
 })
 
@@ -220,11 +232,14 @@ app.post('/share', async (c) => {
   return c.json({ shareId, url })
 })
 
-// List all live shares — the app's local cache source.
+// List all live shares — the app's local cache source. LIMIT caps how many rows
+// D1 reads (and bills) in one call; the app only shares a handful of notes, so
+// 1000 is far above any real ceiling while still bounding a pathological read.
+const SHARES_LIST_LIMIT = 1000
 app.get('/shares', async (c) => {
   await ensureSchema(c.env.SHARES)
   const { results } = await c.env.SHARES.prepare(
-    'SELECT share_id, draft_id, created_at FROM shares ORDER BY created_at DESC',
+    `SELECT share_id, draft_id, created_at FROM shares ORDER BY created_at DESC LIMIT ${SHARES_LIST_LIMIT}`,
   ).all<{ share_id: string; draft_id: string; created_at: number }>()
   const origin = new URL(c.req.url).origin
   return c.json({

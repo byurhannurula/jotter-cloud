@@ -28,6 +28,10 @@ export async function ensureSchema(db: D1Database): Promise<void> {
        )`,
     ),
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS shares_draft ON shares(draft_id)`),
+    // Index the sort key for `GET /shares` (ORDER BY created_at DESC LIMIT …). D1
+    // bills on rows *read*, so an index-backed ordered scan reads only up to the
+    // LIMIT instead of the whole table — the guard against a runaway read bill.
+    db.prepare(`CREATE INDEX IF NOT EXISTS shares_created ON shares(created_at)`),
   ])
   // Reconcile columns added after the table first shipped, so one-click deploys
   // (which run no migrations) self-heal. Idempotent — only adds what's missing.
