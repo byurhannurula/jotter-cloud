@@ -151,9 +151,18 @@ app.get('/health', async (c) => {
 
 // --- Sync: R2 drafts store ---
 
+// Tombstones (deleted drafts) linger so other devices learn of the deletion; after
+// this long every device has surely converged, so we garbage-collect them during the
+// list pass to keep the store (and the delta listing) from growing without bound.
+const TOMBSTONE_TTL_MS = 90 * 24 * 60 * 60 * 1000 // 90 days
+
 // List every object's delta metadata (id + updatedAt + deleted) for the pull pass.
+// Old tombstones are dropped here (deleted from R2 after the response via waitUntil)
+// and omitted from the listing.
 app.get('/drafts', async (c) => {
   const drafts: { id: string; updatedAt: number; deleted: boolean }[] = []
+  const expired: string[] = []
+  const cutoff = Date.now() - TOMBSTONE_TTL_MS
   let cursor: string | undefined
   do {
     const page = await c.env.DRAFTS.list({
@@ -164,14 +173,18 @@ app.get('/drafts', async (c) => {
     for (const o of page.objects) {
       const id = o.key.slice('drafts/'.length).replace(/\.json$/, '')
       const meta = o.customMetadata ?? {}
-      drafts.push({
-        id,
-        updatedAt: Number(meta.updatedAt ?? 0),
-        deleted: meta.deleted === '1',
-      })
+      const updatedAt = Number(meta.updatedAt ?? 0)
+      const deleted = meta.deleted === '1'
+      // GC an aged tombstone: delete the R2 object and leave it out of the listing.
+      if (deleted && updatedAt > 0 && updatedAt < cutoff) {
+        expired.push(o.key)
+        continue
+      }
+      drafts.push({ id, updatedAt, deleted })
     }
     cursor = page.truncated ? page.cursor : undefined
   } while (cursor)
+  if (expired.length) c.executionCtx.waitUntil(c.env.DRAFTS.delete(expired))
   return c.json({ drafts })
 })
 

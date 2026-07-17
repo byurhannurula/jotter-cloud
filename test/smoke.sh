@@ -80,6 +80,9 @@ code -X PUT -H "$AUTH" -H 'content-type: application/json' \
 chk "PUT then GET /drafts/:id"     200 "$(code -H "$AUTH" "$URL/drafts/draft-smoke")"
 chk "DELETE /drafts/:id"           200 "$(code -X DELETE -H "$AUTH" "$URL/drafts/draft-smoke")"
 chk "GET tombstoned /drafts/:id"   404 "$(code -H "$AUTH" "$URL/drafts/draft-smoke")"
+# A fresh tombstone must still appear in the delta list (GC only drops aged ones).
+chk "fresh tombstone still lists"  1 \
+  "$(curl -s -H "$AUTH" "$URL/drafts" | grep -c 'draft-smoke')"
 
 # --- share round-trip (D1) ---
 # updatedAt (ms) is optional; when sent it renders an "Updated <date>" footer line.
